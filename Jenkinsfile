@@ -10,6 +10,7 @@ pipeline {
     environment {
         registry = "abdalrahman07/vprofileapp"
         registryCredential = "dockerhub"
+        SLACK_CHANNEL = "#devops-notifications"
     }
 
     stages{
@@ -96,6 +97,30 @@ pipeline {
             steps {
                 sh "helm upgrade --install --force vprofile-stack helm/vprofilecharts --set appimage=${registry}:V${BUILD_NUMBER} --namespace prod"
             }
+        }
+    }
+
+    post {
+        success {
+            slackSend(
+                channel: env.SLACK_CHANNEL,
+                color: 'good',
+                message: """:white_check_mark: *BUILD SUCCESS*
+*Job:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+*Image:* ${registry}:V${env.BUILD_NUMBER} deployed to *prod*
+*Duration:* ${currentBuild.durationString}
+<${env.BUILD_URL}|View Build>"""
+            )
+        }
+        failure {
+            slackSend(
+                channel: env.SLACK_CHANNEL,
+                color: 'danger',
+                message: """:x: *BUILD FAILED*
+*Job:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+*Failed Stage:* ${env.STAGE_NAME}
+<${env.BUILD_URL}|View Build>"""
+            )
         }
     }
 }
