@@ -49,46 +49,39 @@ pipeline {
             }
         }
 
-        stage('CODE ANALYSIS with SONARQUBE') {
-
-            environment {
-                scannerHome = tool 'mysonarscanner4'
-            }
-
-            steps {
-                withSonarQubeEnv('sonar-pro') {
-                    sh '''${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=vprofile \
-                   -Dsonar.projectName=vprofile-repo \
-                   -Dsonar.projectVersion=1.0 \
-                   -Dsonar.sources=src/ \
-                   -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
-                   -Dsonar.junit.reportsPath=target/surefire-reports/ \
-                   -Dsonar.jacoco.reportsPath=target/jacoco.exec \
-                   -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml'''
-                }
-
-                timeout(time: 10, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-
         stage ('Build APP Image') {
             steps {
-                  script {
+                script {
                     dockerImage = docker.build registry + ":V$BUILD_NUMBER"
                 }
             }
         }
 
-       stage ('Upload Image') {
+        stage ('TRIVY SECURITY SCAN') {
+            steps {
+                sh """
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --no-progress \
+                        ${registry}:V${BUILD_NUMBER}
+                """
+            }
+            post {
+                failure {
+                    echo 'Trivy detected HIGH/CRITICAL vulnerabilities — pipeline aborted. Fix before pushing to registry.'
+                }
+            }
+        }
+
+        stage ('Upload Image') {
             steps {
                 script {
                     docker.withRegistry('', registryCredential) {
                         dockerImage.push ("V$BUILD_NUMBER")
                         dockerImage.push ('latest')
                     }
-                 }
+                }
             }
         }
 
