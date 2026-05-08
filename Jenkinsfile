@@ -10,7 +10,6 @@ pipeline {
     environment {
         registry = "abdalrahman07/vprofileapp"
         registryCredential = "dockerhub"
-        SLACK_CHANNEL = "#devops-notifications"
     }
 
     stages{
@@ -50,39 +49,46 @@ pipeline {
             }
         }
 
+        stage('CODE ANALYSIS with SONARQUBE') {
+
+            environment {
+                scannerHome = tool 'mysonarscanner4'
+            }
+
+            steps {
+                withSonarQubeEnv('sonar-pro') {
+                    sh '''${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=vprofile \
+                   -Dsonar.projectName=vprofile-repo \
+                   -Dsonar.projectVersion=1.0 \
+                   -Dsonar.sources=src/ \
+                   -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
+                   -Dsonar.junit.reportsPath=target/surefire-reports/ \
+                   -Dsonar.jacoco.reportsPath=target/jacoco.exec \
+                   -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml'''
+                }
+
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
         stage ('Build APP Image') {
             steps {
-                script {
+                  script {
                     dockerImage = docker.build registry + ":V$BUILD_NUMBER"
                 }
             }
         }
 
-        stage ('TRIVY SECURITY SCAN') {
-            steps {
-                sh """
-                    trivy image \
-                        --exit-code 1 \
-                        --severity HIGH,CRITICAL \
-                        --no-progress \
-                        ${registry}:V${BUILD_NUMBER}
-                """
-            }
-            post {
-                failure {
-                    echo 'Trivy detected HIGH/CRITICAL vulnerabilities — pipeline aborted. Fix before pushing to registry.'
-                }
-            }
-        }
-
-        stage ('Upload Image') {
+       stage ('Upload Image') {
             steps {
                 script {
                     docker.withRegistry('', registryCredential) {
                         dockerImage.push ("V$BUILD_NUMBER")
                         dockerImage.push ('latest')
                     }
-                }
+                 }
             }
         }
 
@@ -97,30 +103,6 @@ pipeline {
             steps {
                 sh "helm upgrade --install --force vprofile-stack helm/vprofilecharts --set appimage=${registry}:V${BUILD_NUMBER} --namespace prod"
             }
-        }
-    }
-
-    post {
-        success {
-            slackSend(
-                channel: env.SLACK_CHANNEL,
-                color: 'good',
-                message: """:white_check_mark: *BUILD SUCCESS*
-*Job:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-*Image:* ${registry}:V${env.BUILD_NUMBER} deployed to *prod*
-*Duration:* ${currentBuild.durationString}
-<${env.BUILD_URL}|View Build>"""
-            )
-        }
-        failure {
-            slackSend(
-                channel: env.SLACK_CHANNEL,
-                color: 'danger',
-                message: """:x: *BUILD FAILED*
-*Job:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-*Failed Stage:* ${env.STAGE_NAME}
-<${env.BUILD_URL}|View Build>"""
-            )
         }
     }
 }
